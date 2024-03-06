@@ -1,0 +1,697 @@
+[monocurl version: "0.1.0" type: "scene"]
+
+[slide name: "config"]
+	background = WHITE
+	camera = Camera:
+		near: 0.1
+		far: 10
+		up: {0,1,0}
+		origin: {0,0,4}
+		target: {0,0,0}
+		
+	/* colors */
+	let RED_BLUE_GRAD = {0:BLUE, 1:RED}
+	
+	/* tex specialization */
+	func Tx(tex, at, scale) = Centered:
+		mesh: Tex:
+			tex: tex
+			scale: scale
+			stroke: CLEAR
+			fill: BLACK
+		at: at
+	
+	/* text specialization */
+	func Txt(text, at, scale) = Centered:
+		mesh: Text:
+			text: text
+			scale: scale
+			stroke: CLEAR
+			fill: BLACK
+		at: at
+		
+	/* Useful Animations */
+	let W = Wait(1)
+	 
+	func TransferTransform(dst&, src&, predicate(tag), target, time) = identity:
+		tree aux = {}
+	
+		var ret = {}
+		ret += Transfer:
+			from&: src
+			into&: aux		
+		aux = target
+		ret += TagTransform:
+			meshes&: aux
+			time: time
+		ret += Transfer:
+			from&: aux
+			into&: dst
+		element: ret 
+[slide name: "slide_1"]
+	/* title slide */
+	tree title = Txt:
+		text: "Two-Dimensional Riemann Rectangles"
+		at: ORIGIN
+		scale: 1
+	p += Set:
+		vars&: title
+	p += W
+	title = {}
+	p += Fade:
+		meshes&: title
+		time: 1
+[slide name: "slide_2"]
+	/* 1D case, Riemann rectangles */
+	func integral_string(a, b, include_sum) = identity:
+		var ret = "\int_{\pin0{%{a}}}^{\pin1{%{b}}} f(x)dx"
+		if include_sum
+			ret += "\pin{2}{\ = \lim_{n \to \infty}\sum_{i=1}^{n} f(x_i)\Delta x}"
+		element: ret
+	
+	tree def = Tx:
+		var str = integral_string:
+			a: "a"
+			b: "b"
+			include_sum: 1
+		tex: str
+		at: ORIGIN
+		scale: 1
+	
+	p += Write:
+		meshes&: def
+		time: 3
+	p += W
+[slide name: "slide_10"]
+	/* Geometric Interpretation */
+	
+	func f(x) = 0.5 * (x - 1.5) ** 2 + 1 
+	
+	def.at = {0, 1.5, 0}
+	def.scale = 0.75
+	p += Transform:
+		meshes&: def
+		time: 1
+	
+	tree axes = Axis2d:
+		center: {-1,-1.5,0}
+		x_unit: 2
+		x_min: -0.5
+		x_max: 4
+		x_label: "x"
+		y_unit: 2
+		y_min: 0
+		y_max: 4
+		y_label: ""
+		grid: off
+		tag: {}
+		color: BLACK
+	
+	let cap = axes
+	func Embed1(mesh) = EmbedInSpace:
+		mesh: mesh
+		axis_center: cap.center
+		x_unit: cap.x_unit
+		y_unit: cap.y_unit
+		z_unit: 1
+		
+	tree function = ExplicitFunc:
+		start: 0
+		stop: 4
+		f(x): f(x)
+		tag: {}
+		stroke: BLACK
+	function = Embed1:
+		mesh: function
+	function = WithZIndex:
+		mesh: function
+		index: 1
+	
+	p += Fade:
+		meshes&: axes
+		time: 1
+	p += sticky Write:
+		meshes&: function
+		time: 1
+[slide name: "slide_10"]
+	/* GOAL */
+	def.tex = integral_string:
+		a: 0.5
+		b: 4
+		include_sum: 0
+	p += TagTransform:
+		meshes&: def
+		time: 1
+	
+	tree area = {} + ExplicitFuncDiff:
+		start: 0.5
+		stop: 4
+		f(x): f(x)
+		g(x): 0
+		tag: {}
+		pos_fill: {0,0,1,0.2}
+		neg_fill: CLEAR
+	area += Tx:
+		tex: "A"
+		at: {2.3, 0.7, 0}
+		scale: 2
+	area = Embed1(area)
+	
+	p += Fade:
+		meshes&: area
+		time: 1
+	p += W
+	
+	area = {}
+	p += Fade:
+		meshes&: area
+		time: 1
+	
+[slide name: "slide_3"]
+	/* LRAM, RRAM introduction */  
+	
+	
+	/* type: 0 -> stem, 1 -> rect, 2 -> trap */
+	func Node(type, ind, n, mid, y) = identity:
+		let delta = 3.5 / n
+		let u = 0.5 + delta * (ind + mid)
+		let l = 0.5 + delta * (ind)
+		let x = 0.5 + delta * (ind + 0.5)
+		let r = 0.5 + delta * (ind + 1)
+		
+		var ret = {}
+		if type == 0
+			ret += Line:
+				start: {u, 0, 0}
+				end: {u, f(u) * y, 0}
+				tag: {ind}
+				stroke: BLACK
+		else if type == 1
+			let col = keyframe_lerp(RED_BLUE_GRAD, ind/n)
+			ret += Rect:
+				center: {x, f(u) * y / 2, 0}
+				width: delta
+				height: f(u) * y
+				tag: {ind}
+				stroke: CLEAR
+				fill: col
+		else 
+			let col = keyframe_lerp(RED_BLUE_GRAD, ind/n)
+			ret += Polygon:
+				var verts = {}
+				verts += {l, 0, 0}
+				verts += {r, 0, 0}
+				verts += {r, f(r) * y, 0}
+				verts += {l, f(l) * y, 0}
+				vertices: verts
+				tag: {ind}
+				stroke: CLEAR
+				fill: col
+		element: ret
+	
+	/* Capable of stem, trap, riemann rectangles */
+	func Stem(y, mid, n, type) = Embed1:
+		let delta = 3.5 / n
+		mesh: map:
+			v: 0 :< n
+			f(x): identity:
+				let u = 0.5 + delta * (x + mid)
+				
+				var ret = {}
+				ret += Node:			
+					type: type
+					ind: x
+					n: n
+					mid: mid
+					y: y
+				let c = Circle:
+					center: {u, f(u) * y, 0}
+					radius: 0.075
+					tag: {-1 - x},
+					stroke: CLEAR
+					fill: LIGHT_GRAY
+				if type <= 1				
+					ret += WithZIndex(c, 2)
+				element: ret
+	
+	/* specialized ram */				
+	tree stem = Stem:
+		y: 0
+		mid: 0
+		n: 7
+		type: 0
+	p += W
+	p += Fade:
+		meshes&: stem
+		time: 1  
+	p += W
+	
+	/* LRAM introduction */
+	stem.y  = 1
+	p += Lerp:
+		vars&: stem
+		time: 1
+	p += W
+	
+	stem.type = 1 
+	p += TagTransform:
+		meshes&: stem
+		time: 1
+	
+[slide name: "slide_11"]
+	/* calculations */
+	func Dimensions(rects, index) = identity:
+		let selection = mesh_select:
+			root: rects
+			tag_predicate(tag): tag[0] == index
+		
+		let left = Measure:
+			mesh: selection
+			dir: LEFT
+			tag: {}
+			stroke: BLACK
+		let bot = Measure:
+			mesh: selection
+			dir: DOWN
+			tag: {}
+			stroke: BLACK
+		
+		var ret = {left, bot}
+		/* pins will help with transform */
+		ret += Label:
+			mesh: left
+			str: "\[\pin{%{1 + 3 * index}}{f(%{0.5 * (1 + index)})}\]"
+			scale: 0.5
+			dir: LEFT
+			stroke: BLACK
+			fill: BLACK
+		ret += Label:
+			mesh: bot
+			str: "\[\pin{%{2 + 3 * index}}{\Delta x}\]"
+			scale: 0.5
+			dir: DOWN
+			stroke: BLACK
+			fill: BLACK
+		element: ret
+	
+	
+	var tex = ""
+	tex += "\pin{100}{\int_{0.5}^{4} f(x)dx}"
+	tex += "\pin0{\ =} \pin1{f(0.5)} \pin2{\Delta x}"
+	tex += "\pin3{+}   \pin4{f(1)  } \pin5{\Delta x}"
+	tex += "\pin6{+}   \pin7{f(1.5)} \pin8{\Delta x}"
+	tex += "\pin9{+ \ldots}"
+	var total_def = def
+	total_def.tex = tex
+	
+	def = mesh_select:
+		root: total_def
+		tag_predicate(tag): 100 in tag
+	p += Transform:
+		meshes&: def
+		time: 1
+		
+	/* measure */
+	tree measure = Dimensions:
+		rects: stem
+		index: 0
+	
+	let opacity = 0.15
+	
+	/* save state */
+	let total_axes = axes
+	let total_stem = stem
+	let total_func = function
+	
+	axes = Faded(axes, opacity)
+	stem = Faded:
+		root: stem
+		tag_predicate(tag): tag[0] != 0
+		opacity: opacity
+	function = Faded:
+		mesh: function
+		opacity: opacity
+	p += TagTransform:
+		meshes&: {axes, stem, function}
+		time: 1
+	p += Write:
+		meshes&: measure
+		time: 1
+	
+[slide name: "slide_13"]
+	p += W
+	for i in 0 :< 3	
+		p += TransferTransform:
+			dst&: def
+			src&: measure
+			predicate(tag): len(tag) > 0
+			target: mesh_select:
+				root: total_def
+				tag_predicate(tag): 3 * i <= tag[0] && tag[0] < 3 * (i + 1)
+			time: 1.5
+	
+		if i < 2		
+			stem = Faded:
+				root: total_stem
+				tag_predicate(tag): tag[0] != i + 1
+				opacity: opacity
+			measure = Dimensions:
+				rects: stem
+				index: i + 1
+			p += TagTransform:
+				meshes&: {measure, stem}
+				time: 1
+	
+	/* reset state */
+	stem = total_stem
+	axes = total_axes
+	function = total_func
+	def = total_def
+	p += TagTransform:
+		meshes&: {stem, axes, function, def}
+		time: 1
+[slide name: "slide_12"]
+	/* RRAM, different calculations */
+	
+	p += W
+	stem.mid = 1
+	p += Lerp:
+		vars&: stem
+		time: 3
+	
+	tex = ""
+	tex += "\pin{100}{\int_{0.5}^{4} f(x)dx}"
+	tex += "\pin0{\ =} \pin1{f(1.0)} \pin2{\Delta x}"
+	tex += "\pin3{+}   \pin4{f(1.5)} \pin5{\Delta x}"
+	tex += "\pin6{+}   \pin7{f(2.0)} \pin8{\Delta x}"
+	tex += "\pin9{+ \ldots}"
+	def.tex = tex
+	
+	var sub = {}
+	sub += W
+	sub += TagTransform:
+		meshes&: def
+		time: 2
+	p += sticky sub
+[slide name: "slide_4"]
+	/* TRAP */
+	stem.type = 2
+	p += TagTransform:
+		meshes&: stem
+		time: 1
+	
+	def = {}
+	p += sticky Fade:
+		meshes&: def
+		time: 1
+[slide name: "slide_5"]
+	/* Formula for TRAP using marching squares */
+	axes = Faded:
+		mesh: axes
+		opacity: opacity
+	function = Faded:
+		mesh: function
+		opacity: opacity
+	p += Transform:
+		meshes&: {axes, function}
+		time: 1
+	
+	func Kernel(ind_start, mask) = identity:
+		var ret = {}
+		for i in 0 :< len(mask)
+			var col = CLEAR
+			if mask[i] == 1
+				col = ORANGE
+			else if mask[i] == 2
+				col = BLACK
+	
+			ret += Square:
+				center: {0.5 * (i + ind_start + 1), 0, 0}
+				width: 0.15
+				tag: {i}
+				stroke: CLEAR
+				fill: col
+		ret = Embed1:
+			mesh: ret
+		element: ret
+	
+	var mask = {0, 0, 0, 0, 0, 0, 0, 0}
+	tree total = Kernel:
+		ind_start: 0
+		mask: mask
+	tree kernel = Kernel:
+		ind_start: 0
+		mask: {1, 1}
+	p += Set:
+		vars&: {kernel, total}
+	
+	for i in 1 :< len(mask)
+		mask[i] += 1
+		mask[i - 1] += 1
+		kernel.ind_start = i
+		total.mask = mask
+				
+		p += Transform:
+			meshes&: total
+			time: 0.5
+		
+		if i == len(mask) - 1
+			kernel = {}
+			p += Set:
+				vars&: kernel
+		else		
+			p += Transform:
+				meshes&: kernel
+				time: 0.5
+	
+	p += W
+	
+	kernel = total = function = axes = stem = {}
+	p += Set:
+		vars&: {kernel, total, function, axes, stem}
+[slide name: "slide_6"]
+	/* generalization of TRAP into 2d via marching squares */
+	
+	axes = Axis2d:
+		center: ORIGIN
+		x_unit: 1
+		x_rad: 4
+		x_label: ""
+		x_label_rate: 0
+		y_unit: 1
+		y_rad: 3
+		y_label: ""
+		y_label_rate: 0
+		grid: off
+		tag: {}
+		color: DARK_GRAY
+	
+	let samples = 10
+	let del = 4 / (samples - 1)
+	let colors = {LIGHT_GRAY, RED, ORANGE, ORANGE, BLUE}
+	mask = map:
+		v: 0 :< samples
+		f(x): map:
+			v: 0 :< samples
+			f(x): 0
+			
+	func Mask(mask, disabled) = Field:
+		x_min: -2
+		x_max: 2
+		y_min: -2
+		y_max: 2
+		x_step: del
+		y_step: del
+		mask(pos): identity:
+			let i = round((2 - pos[1]) / del)
+			let j = round((2 + pos[0]) / del)
+			element: !disabled[i][j]
+		mesh_at(pos): Square:
+			let i = round((2 - pos[1]) / del)
+			let j = round((2 + pos[0]) / del)
+			let m = mask[i][j]
+			center: pos
+			width: 0.075
+			tag: {i, j}
+			stroke: CLEAR
+			fill: colors[m]
+	
+	tree dots = Mask:
+		mask: mask
+		disabled: mask
+	p += Fade:
+		meshes&: {axes, dots}
+		time: 1
+	
+	func Kernel2(i, j) = Square:
+		center: {-2 + (j + 0.5) * del, 2 - (i + 0.5) * del, 0}
+		width: del
+		tag: {}
+		stroke: ORANGE
+	
+	kernel = Kernel2:
+		i: 0
+		j: 0
+	
+	/* total time is approximate */
+	func MarchKernel(kernel&, dots&, total_time) = identity:
+		var ret = {}
+		let time = total_time / (samples - 1) ** 2
+		
+		for i in 0 :< samples - 1
+			kernel.i = i
+			for j in 0 :< samples - 1				
+				kernel.j = j
+				if !dots.disabled[i][j] && !dots.disabled[i + 1][j] && !dots.disabled[i][j + 1] && !dots.disabled[i+1][j+1]				
+					dots.mask[i][j] += 1
+					dots.mask[i + 1][j] += 1
+					dots.mask[i][j + 1] += 1
+					dots.mask[i + 1][j + 1] += 1
+					
+					ret += Transform:
+						meshes&: kernel
+						time: time
+					ret += Set:
+						vars&: dots
+		kernel = {}
+		ret += Fade:
+			meshes&: kernel
+			time: 1
+		
+		element: ret
+	
+	p += MarchKernel:
+		kernel&: kernel
+		dots&: dots
+		total_time: 5
+	p += Wait(1)
+[slide name: "slide_7"]
+	/* generalization into non rectangular regions */
+	dots.mask = mask
+	for i in 0 :< len(dots.disabled)
+		for j in 0 :< len(dots.disabled[i])
+			let rad = sqrt((i - 4.5) ** 2 + (j - 4.5) ** 2)
+			dots.disabled[i][j] = rad < 2 || rad > 5.5
+	p += Set:
+		vars&: dots
+	
+	kernel = Kernel2:
+		i: 0
+		j: 0
+	p += MarchKernel:
+		kernel&: kernel
+		dots&: dots
+		total_time: 12
+[slide name: "slide_14"]
+	/* 3d view */
+	let RAINBOW = {0: BLACK, 0.75: BLACK, 0.75: BLUE, 1: ORANGE, 1.25:RED} 
+	func q(x,y) = 1 + 0.25 * sin(x * x + y * y)
+	
+	/* note: since the mask is symmetric, we switch the */
+	/* direction of indices in some instances for simplicity */
+	camera.origin = {-1, -2.5, 5}
+	camera.up = FORWARD
+	p += CameraLerp:
+		camera&: camera
+		time: 3
+	
+	let disabled_cap = dots.disabled
+	let mask_cap = dots.mask
+	func dis_at(i, j) = identity:
+		var ret = 0
+		if i >= 0 && i < len(mask_cap) && j >= 0 && j < len(mask_cap)
+			ret = disabled_cap[i][j]
+		element: ret
+	
+	func dis_factor(pos) = identity:
+		let i = round((2 + pos[1]) / del)
+		let j = round((2 + pos[0]) / del)
+		let any = (dis_at(i, j) + dis_at(i + 1, j) + dis_at(i, j + 1) + dis_at(i + 1, j + 1)) == 0
+		var col = DARK_GRAY
+		if any
+			col = keyframe_lerp(RAINBOW, q(pos[0], pos[1]))
+		element: col
+	
+	dots = WithZIndex:
+		mesh: dots
+		index: 1
+	p += sticky Set:
+		vars&: dots
+	tree base = ColorGrid:
+		x_min: -2
+		x_max: 2
+		y_min: -2
+		y_max: 2
+		x_step: del
+		y_step: del
+		tag: {}
+		color_at(pos): dis_factor(pos)
+	p += sticky Fade:
+		meshes&: base
+		time: 3
+	
+	dots = {}
+	p += sticky Fade:
+		meshes&: dots
+		time: 1
+	
+	
+	base = PointMapped:
+		mesh: base
+		point_map(point): {point[0], point[1], q(point[0], point[1])}
+	dots = PointMapped:
+		mesh: dots
+		point_map(point): {point[0], point[1], q(point[0], point[1])}
+	
+	p += Transform:
+		meshes&: {base}
+		time: 2
+[slide name: "slide_15"]
+	base = Faded:
+		mesh: base
+		opacity: 0.5
+	p += Transform:
+		meshes&: base
+		time: 1
+	
+	/* basically march kernel again */ 
+	func Cube(x, y) = identity:
+		var ret = RectangularPrism:
+			center: {x + del / 2, y + del / 2, 0.5}
+			dimensions: {del, del, 1.1}
+			tag: {}
+			color: default
+		ret = PointMapped:
+			mesh: ret
+			point_map(point): {point[0], point[1], point[2] * q(point[0], point[1])}
+		ret = ColorMapped:
+			mesh: ret
+			color_map(point): BLACK
+		/* helps with alpha rendering */
+		ret = WithZIndex:
+			mesh: ret
+			index: -1
+		element: ret
+	
+	
+	tree cube = Cube:
+		x: 0
+		y: 0
+	
+	for i in 0 :< samples - 1	
+		for j in 0 :< samples - 1		
+			if !disabled_cap[i][j] && !disabled_cap[i + 1][j] && !disabled_cap[i][j + 1] && !disabled_cap[i+1][j+1]
+				
+				cube.x = -2 + j * del
+				cube.y = -2 + i * del
+				
+				p += Transform:
+					meshes&: cube
+					time: 0.2
+	
+	p += Fade:
+		meshes&: cube
+		time: 1
+[slide name: "slide_8"]
+	/* remark: marching squares can be used to graph implicit equations */
+	
