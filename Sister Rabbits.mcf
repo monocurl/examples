@@ -1,0 +1,1404 @@
+[monocurl version: "0.1.0" type: "scene"]
+
+[slide name: "config"]
+	background = {1, 0.95, 0.95, 1}
+	camera = Camera:
+		near: 0.1
+		far: 10
+		up: {0,1,0}
+		origin: {0,0,4}
+		target: {0,0,0}
+	
+	/* Many helper util! */
+	/* also, generally laggy with recursive functors */
+	let w = Wait(1)
+	
+	func Txt(text, scale, at) = Centered:
+		mesh: Text:
+			text: text
+			scale: scale
+			stroke: CLEAR
+			fill: BLACK
+		at: at
+	
+	/* adjacency list and color list for a given point, 0 is root */
+	func Tree(adj, colors, at) = identity:
+		func Node(curr, color) = identity:
+			var ret = {} + Circle:
+				center: at
+				radius: 0.065
+				tag: {curr}
+				stroke: CLEAR
+				fill: color
+			ret += Circle:
+				center: at
+				radius: 0.15
+				tag: {curr, -1}
+				stroke: DARK_GRAY
+				fill: CLEAR
+	
+			element: ret
+		
+		func _Tree(adj, colors, curr) = identity:
+			var ret = {}
+			let root = Node:
+				curr: curr
+				color: colors[curr]
+			
+			var children = {}
+			for child in adj[curr]
+				children += _Tree:
+					adj: adj
+					colors: colors
+					curr: child
+			children = XStack:
+				mesh_vector: children
+				align_dir: UP
+				
+			let main = Stack:
+				mesh_vector: {root, children}
+				dir: DOWN
+				align: center
+			
+			var edges = {}
+			for child in adj[curr]
+				let sub = mesh_select:
+					root: main
+					tag_predicate(tag): tag[0] == child
+				edges += Line:
+					start: root
+					end: sub
+					tag: {-1, curr, child}
+					stroke: DARK_GRAY
+					
+			element: {edges, main}
+		
+		element: _Tree:
+			adj: adj
+			colors: colors
+			curr: 0
+	
+	func Swap(graph&, a, b) = identity:
+		tree aux_a = {}
+		tree aux_b = {}
+		
+		let a_col = graph.colors[a]
+		let b_col = graph.colors[b]
+		
+		/* type information will be elided by subset ops */
+		/* lets save a copy before that happens */
+		var final = graph
+		final.colors[a] = b_col
+		final.colors[b] = a_col
+		
+		var ret = {}
+		ret += TransferSubset:
+			from&: graph
+			tag_predicate(tag): tag == {a}
+			into&: aux_a
+		ret += TransferSubset:
+			from&: graph
+			tag_predicate(tag): tag == {b}
+			into&: aux_b
+		
+		let tmp = aux_a
+		aux_a = Centered:
+			mesh: aux_a
+			at: mesh_center(aux_b)
+		aux_b = Centered:
+			mesh: aux_b
+			at: mesh_center(tmp)
+		
+		ret += Transform:
+			meshes&: {aux_a, aux_b}
+			time: 1.5
+			unit_map(u): smooth(u)
+			path_arc: {0, 0, 2}
+		
+		aux_a = aux_b = {}
+		graph = final
+		ret += Set:
+			vars&: {aux_a, aux_b, graph}
+		
+		element: ret
+	
+	/* gets solution for given graph */
+	func sisters(graph) = identity:
+		let N = len(graph.colors)
+		
+		/* preprocess */
+		var sister = {:}
+		var inv_col_map = {:}
+		for i in 0 :< N
+			if graph.colors[i] in inv_col_map
+				inv_col_map[graph.colors[i]] += i
+			else
+				inv_col_map[graph.colors[i]] = {i}
+	
+		for pair in map_values(inv_col_map)
+			sister[pair[0]] = pair[1]
+			sister[pair[1]] = pair[0]
+	
+		element: sister
+	
+	func parents(graph) = identity:
+		var parent = {:}
+		parent[0] = -1
+		for i in 0 :< len(graph.adj)
+			for child in graph.adj[i]
+				parent[child] = i
+		element: parent
+	
+	func meta_nodes(graph) = identity:
+		let parent = parents(graph)
+		var leaves = {}
+		var degree = {:}
+		for i in 0 :< len(graph.adj)
+			degree[i] = len(graph.adj[i])
+			if degree[i] == 0
+				leaves += i
+				
+		var meta_node = {:}
+		var meta_node_count = 0
+		
+		func pop_first(list) = identity:
+			var ret = {}
+			for i in 1 :< len(list)
+				ret += list[i]
+			element: ret
+		
+		/* monocurl doesn't currently have break instruction */
+		var break = 0
+		while !break && len(leaves)
+			var current = leaves[0]
+			leaves = pop_first(leaves)
+	
+			let up = parent[current]
+			if up == -1 || up in meta_node
+				break = 1
+			else			
+				meta_node[current] = meta_node_count
+				meta_node[up] = meta_node_count
+				meta_node_count += 1
+				let parent_parent = parent[up]
+				if parent_parent != -1
+					degree[parent_parent] += -1
+					if degree[parent_parent] == 0
+						leaves += parent_parent
+	
+		
+		var ret = meta_node
+		if break
+			ret = -1
+		element: ret
+	
+	func meta_partners(meta_nodes) = identity:	
+		var inv_map = {:}
+		for i in 0 :< len(meta_nodes)
+			if meta_nodes[i] in inv_map
+				inv_map[meta_nodes[i]] += i
+			else
+				inv_map[meta_nodes[i]] = {i}	
+		
+		var ret = {:}
+		for pair in map_values(inv_map)
+			ret[pair[0]] = pair[1]
+			ret[pair[1]] = pair[0]
+		element: ret
+	
+	func sol_swaps(graph) = identity:
+		let N = len(graph.colors)
+		
+		/* preprocess */
+		let sister = sisters(graph)
+		var meta_node = meta_nodes(graph)
+			
+		var ret = -1
+		if meta_node != -1
+			ret = {}
+			var meta_partner = meta_partners(meta_node)
+			
+			var position = {:}
+			for i in 0 :< N
+				position[i] = i
+			
+			for i in 0 :< N
+				let s = sister[i]
+				if meta_node[i] != meta_node[s]
+					/* swap (indices!) */
+					let u = position[s]
+					let v = position[meta_partner[i]]
+					
+					ret += {u, v}
+					
+					/* update invariants of swap */
+					position[meta_partner[i]] = u
+					position[s] = v
+					
+					meta_node[meta_partner[i]] = meta_node[s]
+					meta_node[s] = meta_node[i]
+					
+					meta_partner[meta_partner[i]] = meta_partner[s]
+					meta_partner[meta_partner[s]] = meta_partner[i]
+					
+					meta_partner[s] = i
+					meta_partner[i] = s
+					
+		element: ret
+	
+	func Solve(graph&) = identity:
+		let swaps = sol_swaps(graph)
+		var ret = {}
+		for swap in swaps
+			ret += Swap:
+				graph&: graph
+				a: swap[0]
+				b: swap[1]
+		element: ret
+[slide name: "slide_1"]
+	/* problem statement */
+	
+	var text = ""
+	text += "{\bf Sister Rabbits} \\"
+	text += "We are given a tree $T$ with $1 \le N \le 10^5$ nodes. \\ \\"
+	text += "Emplaced on the tree on are $N$ rabbits such that \\"
+	text += "every rabbit is on exactly $1$ node. "
+	text += "Rabbits come in \\ pairs; every rabbit has "
+	text += "a partner rabbit. A rabbit's \\ partner's partner "
+	text += "is itself. \\ \\ "
+	text += "Output the minimum amount of swaps of rabbits \\ "
+	text += "in order to get every rabbit adjacent to its partner,"
+	text += " \\ \pin0{or -1 if no such sequence exists}"
+	
+	tree statement = Text:
+		text: text
+		scale: 0.75
+		stroke: CLEAR
+		fill: BLACK
+	statement = Shifted:
+		mesh: statement
+		delta: {-3,2,0}
+	
+	p += Write:
+		meshes&: statement
+		time: 6
+		
+	func Underline(it&, predicate(tag), color) = identity:
+		let left = mesh_left:
+			root: it
+			tag_predicate(tag): predicate(tag)
+		let right = mesh_right:
+			root: it
+			tag_predicate(tag): predicate(tag)
+		let down = mesh_down:
+			root: it
+			tag_predicate(tag): predicate(tag)
+		tree aux = Line:
+			start: {left, down - 0.05, 0}
+			end: {right, down - 0.05, 0}
+			tag: {}
+			stroke: color
+		var ret = {}
+		ret += Write:
+			meshes&: aux
+			time: 1
+		ret += w
+		aux = {}
+		ret += Fade:
+			meshes&: aux
+			time: 1
+		element: ret
+	
+	p += Underline:
+		it&: statement
+		predicate(tag): 0 in tag
+		color: RED
+	
+	statement = {}
+	p += Fade:
+		meshes&: statement
+		time: 1
+[slide name: "slide_5"]
+	/* example */
+	tree graph = Tree:
+		adj: {{1, 2}, {3}, {4}, {}, {5, 6}, {}, {7}, {}}
+		colors: {BLACK, BLUE, ORANGE, RED, ORANGE, BLUE, BLACK, RED}
+		at: UP
+		
+	p += Set:
+		vars&: graph
+	
+	p += Solve:
+		graph&: graph
+	
+	p += w
+	
+	func MetaCapsule(graph, i, s, col) = identity:
+		var ret = {}
+		let mine = mesh_center:
+			root: graph
+			tag_predicate(tag): tag == {i}
+		let sister = mesh_center:
+			root: graph
+			tag_predicate(tag): tag == {s}
+		ret += Capsule:
+			start_center: mine
+			end_center: sister
+			in_rad: 0.15
+			out_rad: 0.15
+			tag: {min(i,s), max(i, s)}
+			stroke: DARK_GRAY
+			fill: {col[0], col[1], col[2], 0.1}
+		element: ret
+	
+	func MetaCapsules(graph, col) = identity:
+		var ret = {}
+		let nodes = meta_nodes(graph)
+		let partner = meta_partners(nodes)
+		for i in 0 :< len(graph.adj)
+			let s = partner[i]
+			if s > i
+				var c = col
+				if c == -1
+					c = graph.colors[i]
+				ret += MetaCapsule:
+					graph: graph
+					i: i
+					s: s
+					col: c
+		element: ret
+	
+	tree caps = MetaCapsules:
+		graph: graph	
+		col: -1
+	p += Fade:
+		meshes&: caps
+		time: 1
+	p += w
+	
+	graph = caps = {}
+	p += Fade:
+		meshes&: {caps, graph}
+		time: 1
+	
+[slide name: "slide_2"]
+	/* possibile? */
+	tree title = Txt:
+		text: "Possible?"
+		scale: 1
+		at: {0, 1.75, 0}
+	
+	p += Write:
+		meshes&: title
+		time: 1
+		
+	p += w
+	title.text = "Initial Configuration"
+	
+	p += Transform:
+		meshes&: title
+		time: 1
+	
+	tree bad = Tree:
+		adj: {{1, 2}, {}, {3}, {}}
+		colors: {RED, BLUE, RED, BLUE}
+		at: {-1, 1, 0}
+	
+	tree good = bad
+	good.at = {1, 1, 0}
+	good.colors = {BLUE, RED, RED, BLUE}
+	
+	p += Fade:
+		meshes&: {good, bad}
+		time: 1
+	
+	tree bad_label = Label:
+		mesh: bad
+		str: "bad"
+		scale: 0.5
+		dir: LEFT
+		stroke: CLEAR
+		fill: BLACK
+		
+	p += Write:
+		meshes&: bad_label
+		time: 1
+	
+	p += w
+	bad_label = {}
+	p += Fade:
+		meshes&: bad_label
+		time: 1
+	
+	tree solved = good
+	solved.at = {1, -1, 0}
+	solved.colors = {RED, RED, BLUE, BLUE}
+	tree arrows = {} + Arrow:
+		start: {1, 0, 0}
+		end: {1, -0.75, 0}
+		tag: {}
+		stroke: CLEAR
+		fill: BLACK
+	
+	p += Fade:
+		meshes&: {solved, arrows}
+		time: 1
+	
+	p += w
+	arrows += Arrow:
+		start: {-0.5, 0.5, 0}
+		end: {0.5, 0.5, 0}
+		tag: {}
+		stroke: CLEAR
+		fill: BLACK
+	p += Fade:
+		meshes&: arrows
+		time: 1
+	
+	p += Swap:
+		graph&: bad
+		a: 0
+		b: 1
+	
+	arrows = arrows[0]
+	bad = good
+	p += Transform:
+		meshes&: bad
+		time: 1
+	p += sticky Fade:
+		meshes&: arrows
+		time: 1
+	
+	bad = {}
+	p += Set:
+		vars&: bad
+	
+	p += Swap:
+		graph&: good
+		a: 0
+		b: 2
+	
+	arrows = {}
+	good = solved
+	p += Transform:
+		meshes&: {good, arrows}
+		time: 1
+	
+	good = {}
+	p += Set:
+		vars&: good
+		
+	solved.at = {0, 1, 0}
+	p += Transform:
+		meshes&: solved
+		time: 1.5
+	
+	p += w
+	solved = {}
+	p += Fade:
+		meshes&: solved
+		time: 1
+[slide name: "slide_6"]
+	/* possible: tree structure */
+	title.text = "Tree Structure"
+	p += Transform:
+		meshes&: title
+		time: 1
+	
+	bad = Tree:
+		adj: {{1,2,3}, {}, {}, {}}
+		colors: {RED, BLUE, RED, BLUE}
+		at: {0, 1, 0}
+	p += Fade:
+		meshes&: bad
+		time: 1
+		
+	bad_label = Label:
+		mesh: bad
+		str: "actually bad!"
+		scale: 0.5
+		dir: LEFT
+		stroke: CLEAR
+		fill: BLACK
+	p += Fade:
+		meshes&: bad_label
+		time: 1
+	p += w
+	p += Fade:
+		bad_label = {}
+		meshes&: bad_label
+		time: 1
+	
+	p += Swap:
+		graph&: bad
+		a: 0
+		b: 1
+	
+	p += Swap:
+		graph&: bad
+		a: 0
+		b: 2
+	p += Swap:
+		graph&: bad
+		a: 0
+		b: 3
+	p += Swap:
+		graph&: bad
+		a: 1
+		b: 2
+[slide name: "slide_17"]
+	bad = Tree:
+		adj: {{1,2,3}, {4,5}, {8}, {6}, {7}, {}, {}, {}, {9}, {}}
+		colors: {BLACK, BLACK, BLACK, BLACK, BLACK, BLACK, BLACK, BLACK, BLACK, BLACK}
+		at: {0, 1, 0}
+	p += Fade:
+		meshes&: bad
+		time: 1
+	
+	caps = MetaCapsules:
+		graph: bad
+		col: -1
+	p += Fade:
+		meshes&: caps
+		time: 1
+	p += w
+	caps = {}
+	p += Fade:
+		meshes&: caps
+		time: 1
+	
+	p += w
+	bad.colors[7] = BLUE
+	p += Set:
+		vars&: bad
+	
+	p += w
+	
+	bad.colors[4] = RED
+	p += Set:
+		vars&: bad
+	
+	p += w
+	
+	bad.colors[4] = bad.colors[7] = LIGHT_GRAY
+	p += Fade:
+		meshes&: bad
+		time: 1
+	
+	bad.colors[5] = BLUE
+	bad.colors[1] = RED
+	p += Fade:
+		meshes&: bad
+		time: 1
+	
+	bad.colors[5] = bad.colors[1] = LIGHT_GRAY
+	p += Fade:
+		meshes&: bad
+		time: 1
+	
+	bad.colors[8] = bad.colors[9] = bad.colors[3] = bad.colors[6] = LIGHT_GRAY
+	p += Fade:
+		meshes&: bad
+		time: 1
+		
+	
+	p += Highlight:
+		value: bad
+		tag_predicate(tag): tag in {{0}, {2}}
+		color: RED
+		time: 2
+	bad.colors[0] = bad.colors[2] = LIGHT_GRAY
+	p += Fade:
+		meshes&: bad
+		time: 1
+	
+	caps = MetaCapsules:
+		graph: bad
+		col: -1
+	p += Fade:
+		meshes&: caps
+		time: 1
+	
+	bad = Tree:
+		adj: {{1,2,3}, {}, {}, {}}
+		colors: {LIGHT_GRAY, BLUE, LIGHT_GRAY, BLUE}
+		at: {0, 1, 0}
+	caps = {} + MetaCapsule:	
+		graph: bad
+		i: 0
+		s: 2
+		col: LIGHT_GRAY
+	p += Fade:
+		meshes&: {caps, bad}
+		time: 1
+[slide name: "slide_16"]
+	p += w
+	caps = bad = {}
+	p += Set:
+		vars&: {caps, bad}
+	
+	text = ""
+	text += "\begin{enumerate}"
+	text += "\item Possible iff meta-node matching succeeds"
+	text += "\item There is at most one final partition"
+	text += "\end{enumerate}"
+	tree obs = Txt:
+		text: text
+		scale: 1
+		at: ORIGIN
+		
+	p += Write:
+		meshes&: obs
+		time: 1
+	
+	obs = title = {}
+	p += Fade:
+		meshes&: {obs, title}
+		time: 1
+	
+[slide name: "slide_7"]
+	/* graphs are relations */
+	title = Txt:
+		text: "Graphs $\iff$ Relations"
+		scale: 1
+		at: ORIGIN
+	
+	p += Write:
+		meshes&: title
+		time: 3
+	
+	p += w
+	title = {}
+	p += Fade:
+		meshes&: title
+		time: 1
+[slide name: "slide_3"]
+	/* main problem, auxiliary graph */
+	
+	let N = 10
+	tree main = Tree:
+		adj: {{1}, {2,3}, {9, 4}, {5}, {6, 7}, {}, {}, {8}, {}, {}} 
+		colors: {BLACK, PURPLE, RED, ORANGE, BLUE, BLUE, ORANGE, BLACK, RED, PURPLE}
+		at: {0, 1.5, 0}
+		
+	p += Set:
+		vars&: main
+	p += w
+	caps = MetaCapsules:
+		graph: main
+		col: LIGHT_GRAY
+	p += Fade:
+		meshes&: caps
+		time: 1
+	
+	main.at[0] = 1
+	caps.graph = main
+	p += Transform:
+		meshes&: {main, caps}
+		time: 1
+		
+	/* show raw edges */
+	let sister = sisters(main)
+	tree edges = {}
+	for i in 0 :< N
+		let s = sister[i]
+		if i < s
+			let start = mesh_select:
+				root: main
+				tag_predicate(tag): tag == {i}
+			let end = mesh_select:
+				root: main
+				tag_predicate(tag): tag == {s}
+			edges += Line:
+				start: start
+				end: end
+				tag: {}
+				stroke: GREEN
+	p += w
+	p += Fade:	
+		meshes&: edges
+		time: 1
+	edges = {}
+	p += Fade:
+		meshes&: edges
+		time: 1
+	
+	func CollapsedMeta(graph, pos, dir, a_tag, b_tag) = identity:
+		let extend = vec_mul(0.25, normalize(dir))
+		var ret = {}
+		ret += Circle:
+			center: pos
+			radius: 0.075
+			tag: {a_tag}
+			stroke: CLEAR
+			fill: graph.colors[a_tag]
+		ret += Circle:
+			center: vec_add(pos, extend)
+			radius: 0.075
+			tag: {b_tag}
+			stroke: CLEAR
+			fill: graph.colors[b_tag]
+		ret += Capsule:
+			start_center: pos
+			end_center: vec_add(pos, extend)
+			in_rad: 0.15
+			out_rad: 0.15
+			tag: {min(a_tag, b_tag), max(a_tag, b_tag)}
+			stroke: DARK_GRAY
+		element: ret
+	
+	
+	func TransformInto(from&, into&, pred(tag), target) = identity:
+		tree aux = {}
+		
+		var ret = {}
+		ret += CopySubset:
+			from&: from
+			tag_predicate(tag): pred(tag)
+			into&: aux
+		
+		aux = target
+		ret += TagTransform:
+			meshes&: aux
+			time: 1
+		ret += Transfer:
+			from&: aux
+			into&: into
+			
+		element: ret
+	
+	func CopyMeta(graph&, caps&, dump&, a, b, pos, dir) = TransformInto:
+		from&: {graph, caps}
+		into&: dump
+		pred(tag): tag in {{a}, {b}, {min(a,b), max(a,b)}}
+		target: CollapsedMeta:
+			graph: graph
+			pos: pos
+			dir: dir
+			a_tag: a
+			b_tag: b
+	/* built permutation graph to the left */
+	tree cycles = {}
+	
+	p += CopyMeta:
+		graph&: main
+		caps&: caps
+		dump&: cycles
+		a: 1
+		b: 0
+		pos: {-1, 0, 0}
+		dir: UP
+		
+	p += w
+	p += CopyMeta:
+		graph&: main
+		caps&: caps
+		dump&: cycles
+		a: 7
+		b: 8
+		pos: {-1, 0.6, 0}
+		dir: UP
+	
+	p += w
+	p += CopyMeta:
+		graph&: main
+		caps&: caps
+		dump&: cycles
+		a: 2
+		b: 9
+		pos: {-1, 1.2, 0}
+		dir: UP
+	
+	p += w
+	/* fold */
+	cycles = {}
+	/* you can prob position via trig as well */
+	cycles += CollapsedMeta:
+		graph: main
+		pos: {-1.4, 0, 0}
+		dir: RIGHT
+		a_tag: 1
+		b_tag: 0
+	cycles += CollapsedMeta:
+		graph: main
+		pos: {-0.95, 0.325, 0}
+		dir: {-1, sqrt(3), 0}
+		a_tag: 7
+		b_tag: 8
+	cycles += CollapsedMeta:
+		graph: main
+		pos: {-1.6, 0.325, 0}
+		dir: {1, sqrt(3), 0}
+		a_tag: 9
+		b_tag: 2
+	p += TagTransform:
+		meshes&: cycles
+		time: 2
+	
+	p += w
+	p += CopyMeta:
+		graph&: main
+		caps&: caps
+		dump&: cycles
+		a: 5
+		b: 3
+		pos: {-1.075, 1.5, 0}
+		dir: UP
+	p += CopyMeta:
+		graph&: main
+		caps&: caps
+		dump&: cycles
+		a: 4
+		b: 6
+		pos: {-1.475, 1.5, 0}
+		dir: UP
+	
+	p += Solve:
+		graph&: main
+		
+	cycles = {}
+	let nodes = meta_nodes(main)
+	let partners = meta_partners(nodes)
+	var encountered = 0
+	for i in 0 :< 10 
+		let p = partners[i]
+		if p > i
+			let add = CollapsedMeta:
+				graph: main
+				pos: {-3 + encountered * 0.5, 1, 0}
+				dir: UP
+				a_tag: i
+				b_tag: p
+			
+			cycles += add
+			cycles += Arrow:
+				start: {-3.1 + encountered * 0.5, 0.8, 0}
+				end: {-2.9 + encountered * 0.5, 0.8, 0}
+				normal: FORWARD
+				path_arc: 4.8
+				tag: {}
+				stroke: CLEAR
+				fill: LIGHT_GRAY
+			encountered += 1
+	p += Fade:
+		meshes&: cycles
+		time: 1
+[slide name: "slide_9"]
+	text = "{\bf Claim:} \\"
+	text += "1. All nodes in auxiliary graph have degree $2$ \\"
+	text += "2. Auxiliary graph is a set of cycles"
+	title = Txt:
+		text: text
+		scale: 0.75
+		at: {-0.5, -1.25, 0}
+	p += Write:
+		meshes&: title
+		time: 1
+	p += w
+	main = caps = title = cycles = {}
+	p += Fade:
+		meshes&: {main, caps, title, cycles}
+		time: 1
+[slide name: "slide_4"]
+	/* examining structure of auxiliary graph */
+	
+	func DotLine(n) = identity:
+		var ret = {}
+		var last = {}
+		for i in 0 :< n
+			let x = -3 + i * 0.8
+			var curr = {}
+			curr += Circle:
+				center: {x, 0, 0}
+				radius: 0.3
+				tag: {i}
+				stroke: BLACK
+				fill: CLEAR
+			curr += Txt:
+				text: "$\pin{%{i}}{m_{%{i}}}$"
+				scale: 0.75
+				at: {x, 0, 0}
+			
+			ret += curr
+			if i > 0			
+				ret += Line:
+					start: last
+					end: curr
+					tag: {}
+					stroke: BLACK
+			last = curr
+		element: ret
+	
+	tree line = DotLine:
+		n: 0
+	
+	p += Set:
+		vars&: line
+	
+	for i in 1 :< 10
+		line.n = i
+		p += Fade:
+			meshes&: line
+			time: 0.5
+	
+	
+	p += w
+	title = Txt:
+		text: "$m_i = m_j$"
+		scale: 1
+		at: {0, 1, 0}
+	p += Write:
+		meshes&: title
+		time: 1
+	
+	p += w
+	
+	let org_line = line	
+	line = Restroked:
+		root: line
+		tag_predicate(tag): 3 in tag || 7 in tag
+		albedo: RED
+	p += TagTransform:
+		meshes&: line
+		time: 1
+		
+	tree connector = Arrow:
+		let s = mesh_select:
+			root: line
+			tag_predicate(tag): 7 in tag
+		let e = mesh_select:
+			root: line
+			tag_predicate(tag): 3 in tag
+		start: {-3 + 7 * 0.8, -0.4, 0}
+		end: {-3 + 3 * 0.8, -0.4, 0}
+		normal: FORWARD
+		path_arc: -1
+		tag: {}
+		stroke: CLEAR
+		fill: BLACK
+	
+	p += Fade:
+		meshes&: connector
+		time: 1
+	
+	p += w
+	
+	line = Restroked:
+		root: org_line
+		tag_predicate(tag): 0 in tag || 7 in tag
+		albedo: RED
+	connector.end[0] = -3
+	connector.path_arc = -0.5
+	title.text = "$m_{0} = m_{j}$"
+	p += Lerp:
+		vars&: connector
+		time: 1
+	p += sticky TagTransform:
+		meshes&: {title, line}
+		time: 1
+	
+	func DotCircle(n) = identity:
+		var ret = {}
+		let r = 1
+		for i in 0 :< n
+			let theta = -PI / 2 - i * TAU / n
+			let c = r * cos(theta)
+			let s = r * sin(theta)
+			var curr = {}
+			curr += Circle:
+				center: {c, s, 0}
+				radius: 0.3
+				tag: {i}
+				stroke: BLACK
+				fill: CLEAR
+			curr += Txt:
+				text: "$\pin{%{i}}{m_{%{i}}}$"
+				scale: 0.75
+				at: {c, s, 0}
+			
+			ret += curr
+		element: ret
+	
+	title = connector = {}
+	p += Fade:
+		meshes&: {title, connector}
+		time: 1
+	
+	line = DotCircle:
+		n: 7
+	
+	p += TagTransform:
+		meshes&: line
+		time: 1
+		
+	p += w
+	
+	line = {}
+	p += Fade:
+		meshes&: line
+		time: 1
+[slide name: "slide_8"]
+	/* general permutation graph */
+	
+	let fat_n = 40
+	
+	/* seed */
+	for i in 0 :< 17
+		randint(0, 1)
+		
+	let batch = {RED, ORANGE, PURPLE, BLUE, BLACK}
+	var colors_ = {}
+	for i in 0 :< fat_n	
+		let j = randint(0, len(batch) - 1)
+		let choice = batch[j]
+		let choice2 = batch[randint(j + 1, len(batch))]
+		let l = random(0, 1)
+		let col = lerp(choice, choice2, l)
+		colors_ += col
+		colors_ += col
+	let colors = colors_
+	
+	
+	/* randomness is a bit awkward in MC */
+	var iota = 0 :< 2 * fat_n
+	/* shuffle */
+	for i in 0 :< len(iota)
+		let swap = randint:
+			low: i
+			high: len(iota) 
+		
+		let tmp = iota[i]
+		iota[i] = iota[swap]
+		iota[swap] = tmp
+		
+	var sis = {:}
+	for i in 0 :< fat_n	
+		sis[2 * i] = 2 * i + 1
+		sis[2 * i + 1] = 2 * i
+				
+	var partner = {:}
+	var block = 0
+	for i in 0 :< fat_n
+		if i == fat_n - 1 || random(0, 1) < 0.3
+			/* close cycle */
+			partner[2 * i + 1] = block
+			partner[block] = 2 * i + 1
+			block = 2 * i + 2
+		else
+			partner[2 * i + 1] = 2 * i + 2
+			partner[2 * i + 2] = 2 * i + 1
+	func PermCapsule(a, b, a_pos, b_pos) = identity:
+		var ret = {}
+		ret += Circle:
+			center: a_pos
+			radius: 0.05
+			tag: {a}
+			stroke: CLEAR
+			fill: colors[a]
+		ret += Circle:
+			center: b_pos
+			radius: 0.05
+			tag: {b}
+			stroke: CLEAR
+			fill: colors[b]
+		ret += Capsule:
+			start_center: a_pos
+			end_center: b_pos
+			in_rad: 0.1
+			out_rad: 0.1
+			tag: {min(a, b), max(a, b)}
+			stroke: DARK_GRAY
+		element: ret
+		
+	func Permutation(partner, sister) = identity:
+		var cycles = {}
+		var encountered = {:}
+		
+		func next(i) = partner[sister[i]]
+		
+		for i in 0 :< 2 * fat_n		
+			if !(i in encountered)			
+				var count = 0
+				var j = i
+				while count == 0 || j != i
+					encountered[j] = 1
+					encountered[partner[j]] = 1
+					j = next(j)
+					count += 1
+				
+				let radius = 0.06 * count
+				
+				func pos(theta) = {-radius*cos(theta), radius*sin(theta), 0}
+				
+				var cycle = {}
+				var ind = 0
+				while ind == 0 || j != i			
+					cycle += PermCapsule:
+						a: partner[j]
+						b: j
+						a_pos: pos((ind - 0.175) / count * TAU)
+						b_pos: pos((ind + 0.175) / count * TAU)
+					
+					j = next(j)
+					ind += 1
+					
+				cycles += cycle
+		var ret = XStack:
+			mesh_vector: cycles
+			align: center
+		ret = Centered:
+			mesh: ret
+			at: ORIGIN
+		element: ret
+	
+	tree perm = Permutation:
+		partner: partner
+		sister: sis
+	
+	p += Fade:
+		meshes&: perm
+		time: 1
+	
+	
+	func PermSwap(perm&, a, b, full, swap_time, time) = identity:
+		var ret = {}
+	
+		let org = perm
+		let pa = perm.partner[a]
+		let pb = perm.partner[b]
+		
+		let sa = perm.sister[a]
+		let sb = perm.sister[b]
+		
+		tree aux_a = {}
+		tree aux_b = {}
+		
+		let center_a = mesh_center:
+			root: perm
+			tag_predicate(tag): tag == {a}
+		let center_b = mesh_center:
+			root: perm
+			tag_predicate(tag): tag == {b}
+		
+		ret += TransferSubset:
+			from&: perm
+			tag_predicate(tag): tag == {a}
+			into&: aux_a
+		ret += TransferSubset:
+			from&: perm
+			tag_predicate(tag): tag == {b}
+			into&: aux_b
+		
+		aux_a = Shifted:
+			mesh: aux_a
+			delta: vec_sub(center_b, center_a)
+		aux_b = Shifted:
+			mesh: aux_b
+			delta: vec_sub(center_a, center_b)
+		ret += TagTransform:
+			meshes&: {aux_a, aux_b}
+			time: swap_time
+		
+		if full			
+			tree flash_selection = {aux_a, aux_b}
+			flash_selection += mesh_select:
+				root: perm
+				tag_predicate(tag): tag == {sa}
+			flash_selection += mesh_select:		
+				root: perm
+				tag_predicate(tag): tag == {sb}
+			
+			flash_selection = map:
+				v: flash_selection
+				f(x): Circle:
+					let c = mesh_center(x)
+					center: c
+					radius: 0.08
+					tag: {}
+					stroke: {0, 0, 0, 1}
+					fill: {0, 0, 1, 0.3}
+			
+			ret += Write:
+				meshes&: flash_selection
+				time: 2
+			flash_selection = {}
+			ret += w
+			ret += Fade:
+				meshes&: flash_selection
+				time: 1
+		
+		ret += Transfer:
+			from&: {aux_a, aux_b}
+			into&: perm
+		
+		/* prepare for tag matching */
+		perm = Retagged:
+			mesh: perm
+			retag(old_tag): identity:
+				var ret = old_tag
+				if ret == {min(b, pb), max(b, pb)}
+					ret = {min(a, pb), max(a, pb)}
+				if ret == {min(a, pa), max(a, pa)}
+					ret = {min(b, pa), max(b, pa)}
+					
+				element: ret
+		ret += Set:
+			vars&: perm
+		
+		perm = org
+		perm.partner[a] = pb
+		perm.partner[pb] = a
+		
+		perm.partner[b] = pa
+		perm.partner[pa] = b
+		ret += TagTransform:
+			meshes&: perm
+			time: time
+		element: ret
+[slide name: "slide_14"]
+	p += PermSwap:
+		perm&: perm
+		a: 12
+		b: 15
+		full: 1
+		swap_time: 2
+		time: 2
+[slide name: "slide_12"]
+	p += PermSwap:
+		perm&: perm
+		a: 5
+		b: 7
+		full: 1
+		swap_time: 2
+		time: 2
+[slide name: "slide_14"]
+	p += PermSwap:
+		perm&: perm
+		a: 30
+		b: 46
+		full: 1
+		swap_time: 2
+		time: 2
+	p += PermSwap:
+		perm&: perm
+		a: 30
+		b: 46
+		full: 1
+		swap_time: 2
+		time: 2
+	
+	title = Txt:
+		text: "$X \ge \frac{N}{2} - C$"
+		scale: 1
+		at: {0, 1.5, 0}
+	
+	p += w
+	p += Write:
+		meshes&: title
+		time: 1
+[slide name: "slide_15"]
+	title.text = "$X = \frac{N}{2} - C$"
+	p += Transform:
+		meshes&: title
+		time: 1
+	
+	var swaps = {}
+	var changed = 1
+	while changed
+		changed = 0
+		for i in 0 :< 2 * fat_n
+			if perm.partner[i] != perm.sister[i]
+				changed = 1
+				swaps += PermSwap:
+					perm&: perm
+					a: perm.partner[i]
+					b: perm.sister[i]
+					full: 0
+					swap_time: 0.5
+					time: 0.5
+	
+	p += swaps
+	camera.origin[2] = 6
+	p += sticky CameraLerp:
+		camera&: camera
+		time: 10
+[slide name: "slide_15"]
+	perm = title = {}
+	p += Fade:
+		meshes&: {perm, title}
+		time: 1
+	
+	var adj = {:}
+	colors_ = {}
+	for i in 0 :< 10
+		let j = randint(0, len(batch) - 1)
+		let choice = batch[j]
+		let choice2 = batch[randint(j + 1, len(batch))]
+		let l = random(0, 1)
+		let col = lerp(choice, choice2, l)
+		
+		colors_ += col
+		colors_ += col
+		
+	/* random shuffle again */
+	for i in 0 :< len(colors_)
+		let swap = randint:
+			low: i
+			high: len(colors_) 
+		
+		let tmp = colors_[i]
+		colors_[i] = colors_[swap]
+		colors_[swap] = tmp
+	
+	for i in 0 :< len(colors_)
+		adj[i] = {}
+	adj[0] = {1}
+	
+	/* make sure graph is solvable! */
+	for i in 1 :< len(colors_) / 2
+		let u = randint(0, 2 * i)
+		adj[u] += 2 * i
+		adj[2 * i] += 2 * i + 1
+		
+	tree final = Tree:
+		adj: adj
+		colors: colors_
+		at: {0, 1.5, 0}
+	
+	p += Fade:
+		meshes&: final
+		time: 1
+	
+	p += Solve:
+		graph&: final
+	
+	p += w
+	final = {}
+	p += Fade:
+		meshes&: final
+		time: 1
+[slide name: "slide_10"]
+	/* Recap */
+	text = ""
+	text += "{\bf Recap}"
+	text += "\begin{enumerate}"
+	text += "\item \pin1{Establish possibility of solution}"
+	text += "\item \pin2{Observe uniqueness of meta-node partition}"
+	text += "\item \pin3{Discover auxiliary graph}"
+	text += "\item \pin4{Establish lower bound on solution}"
+	text += "\item \pin5{Discover constructive solution meeting lower bound}"
+	text += "\end{enumerate}"
+	
+	let total = Txt:
+		text: text
+		scale: 0.85
+		at: ORIGIN
+	
+	for i in 0 :< 6
+		title = mesh_select:
+			root: total
+			tag_predicate(tag): len(tag) == 0 || tag[0] <= i
+		p += Write:
+			meshes&: title
+			time: 1
+		p += w
