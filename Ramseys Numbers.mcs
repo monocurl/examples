@@ -1,0 +1,648 @@
+import std.util
+import std.math
+import std.color
+import std.mesh
+import std.anim
+import std.scene
+
+let labels = [
+    "Alice",
+    "Bob",
+    "Charlie",
+    "David",
+    "Eve",
+    "Frank",
+    "Grace",
+    "Henry"
+]
+let font = "Arial"
+let soft = |col| lerp(WHITE, col, 0.24)
+
+slide "Raw Story"
+    # You are hosting a party with five guests. You hope for some level
+    # of familiarity, but also some level of strangerness between the guests
+    # Specifically, you hope that there can no three guests
+    # who all simultaenously know each other before hand
+    # or don't know each other.
+
+    let TwoLineCaption = |top, bottom, pos = [0, 1.62, 0], col = DARK_GRAY|
+        [
+            center{pos + 0.1u} color{col} Text(top, 0.8, font),
+            center{pos + 0.1d} color{col} Text(bottom, 0.8, font)
+        ]
+
+    mesh graph_note = TwoLineCaption(
+        "Can we set the relationships so no three guests",
+        "are all friends, and no three are all strangers?"
+    )
+
+    let cis = |n, i, radius| {
+        let angle = - TAU * i / n + PI / 2
+        return [radius * cos(angle), radius * sin(angle), 0]
+    }
+
+    let NameBadge = |pos, label, col, collapsed| block {
+        if (collapsed) {
+            . center{pos}
+              fill{soft(col)}
+              stroke{col, 2.2}
+              Circle(0.3)
+        }
+        if (collapsed == 1) {
+            . center{pos}
+              color{BLACK}
+              Text(label[0], 0.8)
+        }
+
+        if (not collapsed) {
+            . center{pos}
+              fill{soft(col)}
+              stroke{col, 2.2}
+              Rect([0.78, 0.42])
+            . center{pos}
+              color{BLACK}
+              Text(label, 0.6)
+        }
+    }
+
+    let GuestRing = |n, radius, collapsed| block {
+        for (i in range(0, n)) {
+            for (j in range(i + 1, n)) {
+                . stroke{LIGHT_GRAY, 2.0}
+                  tag{[i, j]}
+                  Line(cis(n, i, radius), cis(n, j, radius))
+            }
+        }
+        for (i in range(0, n)) {
+            . tag{i}
+              z_index{2}
+              NameBadge(cis(n, i, radius), labels[i], TEAL, collapsed)
+        }
+    }
+
+    let style = operator |target, reds, blues, highlight=[]| {
+        let base =
+            stroke{RED, 3, |tag| tag in reds}
+            stroke{BLUE, 3, |tag| tag in blues}
+            target
+        if (highlight != []) {
+            return
+                fade{0.2, |tag| not all(map(tag, |t| t in highlight))}
+                base
+        }
+        return base
+    }
+
+    mesh graph = style{reds: [], blues: [], highlight: []} center{shift: [0, -0.3, 0]} GuestRing(n: 5, 1.0, collapsed: 0)
+
+    play [Write(4, &graph_note), delay{1} Fade(1, [], UP)]
+
+    play Wait(1)
+
+    graph.shift = [-1, -0.3, 0]
+
+    let sq = |col|
+        fill{soft(col)}
+        stroke{col, 2.2}
+        Square(0.25)
+    let row = |title, col| [sq(col), shift{0.2r+0.05d} Text(title, 0.6, font)]
+    mesh legend = center{2r + 0.1d} YStack([
+        row("strangers", BLUE),
+        row("friends", RED),
+        row("person", TEAL)
+    ])
+    play [Lerp(1, &graph), Fade()]
+
+slide "Example Colorings"
+    # To make this problem more mathematical, we can
+    # represent it as a graph
+    # Each of the five people is depicted as a node
+    # and there is a line drawn between them. Its color
+    # indicates the level of familiarity between
+    # the two people.
+    #
+    # In the lingo, this is a 2-coloring of the 5-clique.
+    # What we want to avoid is three people that have the same
+    # color edges drawn between them, since that would imply
+    # all or none of them know each other.
+    # The formal phrasing of this would be that we want to avoid monochromatic subgraphs of size 3.
+    #
+    # If your careful you'll notice that alice, bob, and eve
+    # all know each other before hand, so this coloring does
+    # not meet out needs.
+    # On the other hand, in this one, none of Alice, Bob, and David
+    # know each other. But maybe a different coloring will avoid both problems
+
+
+    let edges = |n| block {
+        for (i in range(0, n)) {
+            for (j in range(i + 1, n)) {
+                . [i, j]
+            }
+        }
+    }
+    graph.reds = [[0, 1], [1, 4], [0, 4], [2, 3], [1,3]]
+    let rcap = graph.reds
+    graph.blues = filter(edges(graph.n), |e| not (e in rcap))
+    play Trans()
+
+    play Wait()
+    graph.highlight = [0, 1, 4]
+    play Trans()
+
+    play Wait()
+    graph.highlight = []
+    graph.blues = [[0, 1], [1, 4], [0, 3], [2, 3], [1,3]]
+    let bcap = graph.blues
+    graph.reds = filter(edges(graph.n), |e| not (e in bcap))
+    play Trans()
+
+    play Wait()
+    graph.highlight = [0, 1, 3]
+    play Trans()
+
+    play Wait()
+
+    graph.highlight = []
+    play Trans()
+
+
+slide "Three Fails"
+    # It's instructive to smart with a smaller example
+    # For simplicity, we can abstract away the names of the
+    # party-goers and label them with single letters.
+    # If we only have three people at the party
+    # it's not too difficult to construct the arrangement we want
+    # A and B can be connected arbitarily by a red edge
+    # We can make A and C red as well
+    # We can't make B and C red since that would form a red triangle
+    # but we can color it blue, and we get a valid configuration
+
+    graph_note = []
+    graph.shift = 0l
+    graph.n = 3
+    graph.reds = graph.blues = []
+    graph.collapsed = 1
+    legend = []
+    play Set()
+
+    graph.reds .= [0, 1]
+    play Trans()
+
+    graph.reds .= [0, 2]
+    play Trans()
+
+    graph.blues .= [1, 2]
+    play Trans()
+
+slide "Four Fails"
+    # Let's move to 4. We can partially reuse our construction from
+    # n = 3, and let's see if we can color the remaining.
+    #
+    # If you think about it, coloring A-D red leads us into a trap
+    # since then B-D has to be blue which would force C-D to be red
+    # but that would give us a red triangle of A C D
+    # So instead, let's color B-D red
+    # Then we're free to color the remaining two edges blue
+    # and we once again construct a valid configuration
+
+    graph.n = 4
+    play TagTrans()
+
+    play Wait()
+
+    graph.reds .= [1, 3]
+    play Trans()
+
+    play Wait()
+
+    graph.blues .= [0, 3]
+    graph.blues .= [2, 3]
+    play Trans()
+
+
+slide "Five Fails"
+    # Now we come back to the n = 5 example
+    # Let's again start from our previous construction and see
+    # if you can fit the remaining edges into place
+    #
+    # Coloring A-E and B-E blue and C-E and D-E red brings one valid configuration
+    # Although, if we switch the positions of B and D
+    # we get a prettier drawing.
+    graph.n = 5
+    play TagTrans()
+
+    play Wait()
+
+    graph.reds .= [2, 4]
+    graph.reds .= [3, 4]
+    graph.blues .= [0, 4]
+    graph.blues .= [1, 4]
+    play Trans()
+
+    play Wait()
+
+    graph = tag_map{|tags, m|
+       tag{
+           sort(map(tags, |t| {
+               if (t == 1) { return 3 }
+               if (t == 3) { return 1 }
+               return t
+           }))}
+        m} graph
+
+    graph.blues = filter(edges(5), |e| {
+       let diff = e[1] - e[0]
+       return diff in [1, 4]
+    })
+    let bcap = graph.blues
+    graph.reds = filter(edges(5), |e| not (e in bcap))
+    play TagTrans(1.5)
+
+    play Wait(1)
+
+
+slide "Six Setup"
+    # Can we go further? Based on the past it might seem
+    # that there is an inductive argument
+    # that can be made by taking coloring of n - 1 and extend it
+    # to a valid coloring of n
+    #
+    # But once we get to n = 6, it becomes much more complicated
+    # No matter what you try, we can't avoid a monochromatic
+    # triangle.
+    graph.n = 6
+    play TagTrans()
+
+    play Wait(4)
+
+    let ColorExpose = |&target, reds, duration=1| anim {
+        target.highlight = []
+        target.reds = reds
+        target.blues = filter(edges(6), |e| not (e in reds))
+        play Trans(1)
+
+        var fail = []
+        for (i in range(0, 6)) {
+            for (j in range(i + 1, 6)) {
+                let ij = [i, j] in reds
+                for (k in range(j + 1, 6)) {
+                    let jk = [j, k] in reds
+                    let ik = [i, k] in reds
+                    let sum = ij + jk + ik
+                    if (sum in [0, 3]) {
+                        fail = [i, j, k]
+                    }
+                }
+            }
+        }
+        target.highlight = fail
+        play Trans(1)
+
+        play Wait(duration)
+    }
+    graph.reds .= [0, 5]
+    graph.reds .= [4, 5]
+    graph.reds .= [2, 5]
+    play ColorExpose(&graph, graph.reds)
+    graph.highlight = []
+    play Trans()
+    graph = []
+    play Set()
+
+slide "Many Sixes"
+    # But it could just be that we got unlucky with the seed coloring
+    # given to us by the n = 5 case. A different seed might lend itself
+    # to an actual coloring?
+    # In fact, in all of these randomized simulations, we can find
+    # a monochromatic triangle
+    let rows = 3
+    let cols = 5
+    let tries = 3
+    var anims = []
+    for (r in sample(-1.5, 1.5, rows)) {
+        for (c in sample(-3, 3, cols)) {
+            mesh sub =
+                style{reds: [], blues: [], highlight: []}
+                center{[c, r, 0]}
+                scale{0.5}
+                GuestRing(n: 6, 1.0, 2)
+
+            # random is a bit tricky to work with properly
+            # must do everything in the root frame
+            # so we precompute there
+            var reds = []
+            var durs = []
+            for (t in range(0, tries)) {
+                var curr = []
+                for (i in range(0, sub.n)) {
+                    for (j in range(i + 1, sub.n)) {
+                        if (random() > 0.5) {
+                            curr .= [i, j]
+                        }
+                    }
+                }
+
+                reds .= curr
+                durs .= 2
+            }
+            anims .= anim {
+                play Fade()
+                for ([red, dur] in zip(reds, durs)) {
+                    play ColorExpose(&sub, red, dur)
+                }
+                sub = []
+                play Fade()
+            }
+        }
+    }
+    play anims
+slide "Six Branches"
+    # So let's see why with n = 6, you'll always reach a monochromatic triangle. Suppose for sake of contradiction we do have a valid coloring.
+    # Let's look at the 5 edges adjacent to vertex F
+    # Some of these will be red and the others will be blue,
+    # but since 5 is odd, there will be a strict majority color
+    # and that majority color must occur at least 3 times.
+    # Without loss of generality, lets assume that color is red.
+    # To be clear, there could be more than 3 of the majority color, but it will always be at least 3 and that's all we need.
+    #
+    # Now focus on the vertices adjacented to F, say A B and C
+    # Let's think about how we can color these edges
+    # If any of them are red, then that forms a red triangle
+    # with that edges two endpoints and F.
+    # So that means all three of these edges must be blue
+    # but that's a contradiction since that's a monochromatic triangle!
+    # Hence, any party with 6 or more must necessarily have 3 people
+    # that are all friends or all strangers, depite it being possible with 5 or fewer friends
+    graph =
+        style{reds: [], blues: [], highlight: []}
+        center{0l}
+        GuestRing(n: 6, 1.0, 1)
+    play Set()
+
+    play Wait(1)
+
+    graph.reds = [[0, 5], [1, 5], [2, 5]]
+    graph.blues = [[3, 5], [4,5]]
+    play Trans()
+
+    play Wait(1)
+
+    graph.highlight = [5, 0, 1, 2]
+    play Trans()
+
+    play Wait()
+
+    graph.reds .= [1, 2]
+    play Trans()
+
+    graph.highlight = [5,1,2]
+    play Trans()
+
+    play Wait()
+    graph.highlight .= 0
+    graph.reds = [[0, 5], [1, 5], [2, 5]]
+    play Trans()
+    graph.blues = [[0,1], [1,2], [0, 2]]
+    play Trans()
+    graph.highlight = [0, 1, 2]
+    play Trans()
+
+    play Wait(1)
+    graph = []
+    play Write(2)
+
+slide "Bigger Question"
+    # What we just showed is that R(3, 3) = 6
+    # The Ramsey number = min number of vertices so that any $2$-coloring of complete graph with $n$ vertices must have a monochromatic \tag1{red} clique of size $s$ or a monochromatic \tag2{blue} clique of size $t$
+    # These numbers are incredibly hard to compute due to the exponential number of coloring of graphs
+    # Even R(5, 5) is not perfectly known
+
+    mesh title =
+        center{1u}
+        color{RED, |tag| 1 in tag}
+        color{BLUE, |tag| 2 in tag}
+        Text("\textbf{Ramsey Number:} $R(s, t)$ = min number of vertices so that any $2$-coloring of complete graph with $n$ vertices must have a monochromatic \tag1{red} clique of size $s$ or a monochromatic \tag2{blue} clique of size $t$", 0.8)
+
+    play Write(5)
+    mesh subtitle =
+           center{0d}
+           color{BLACK}
+           Text("We just showed R(3, 3) = 6 \\ But even R(5, 5) unknown!", 0.7)
+    play Write(1)
+    play Wait()
+
+    title = subtitle = []
+    play Write(2)
+
+slide "History"
+    # The problem of the Ramsey Number has an interesting history
+    # Note that a priori, Ramsey Numbers aren't well defined
+    # since there might not even be a minimum value of n
+    # In 1930, Ramsey first showed that such a minimum always exists
+    # A few years later, a constructive approach placed a loose upper bound on their growth
+    # For a while progress somewhat slowed until in 1947, Erdos
+    # blew everybodys socks off with an innovative approach.
+    # The actual proof was merely half a page, yet it introduced
+    # a new lower bound.
+    mesh hist_title = center{1.55u} Text("History", 1.1)
+    play Fade(0.7, [&hist_title])
+
+    let TL_Y = 0.10
+    mesh spine = stroke{DARK_GRAY, 3} Line([-2.8, TL_Y, 0], [2.8, TL_Y, 0])
+    play Fade(0.6, [&spine])
+
+    let above  = TL_Y + 0.45
+    let below1 = TL_Y - 0.45
+    let below2 = TL_Y - 0.65
+
+    let EventDot = |px, col|
+        center{[px, TL_Y, 0]} fill{soft(col)} stroke{col, 2.5} Circle(0.16)
+
+    let YearLabel = |px, yr, col|
+        center{[px, above, 0]} color{col} Tex(yr, 0.55)
+
+    let DescLine = |px, y, txt, col|
+        center{[px, y, 0]} color{col} Text(txt, 0.56)
+
+    let x_ramsey = -2.05
+    mesh e_ramsey = [
+        YearLabel(x_ramsey, "1930", BLUE),
+        EventDot(x_ramsey, BLUE),
+        DescLine(x_ramsey, below1, "\textbf{Ramsey}", DARK_GRAY),
+        DescLine(x_ramsey, below2, "order is forced", DARK_GRAY)
+    ]
+    play Fade(0.8, [&e_ramsey])
+    play Wait(0.5)
+
+    let x_es = -0.55
+    mesh e_es = [
+        YearLabel(x_es, "1935", TEAL),
+        EventDot(x_es, TEAL),
+        DescLine(x_es, below1, "\textbf{Erdos \& Szekeres}", DARK_GRAY),
+        DescLine(x_es, below2, "explicit algebra", DARK_GRAY)
+    ]
+    play Fade(0.8, [&e_es])
+    play Wait(0.5)
+
+    let x_dogma = 0.90
+    mesh e_dogma = [
+        YearLabel(x_dogma, "\text{years pass\ldots}", GRAY),
+        EventDot(x_dogma, GRAY),
+        DescLine(x_dogma, below1, "many attempts", DARK_GRAY)
+    ]
+    play Fade(0.8, [&e_dogma])
+    play Wait(0.5)
+
+
+    let x_erdos = 2.20
+    mesh e_erdos = [
+        YearLabel(x_erdos, "1947", RED),
+        EventDot(x_erdos, RED),
+        DescLine(x_erdos, below1, "\textbf{Erdos}", RED),
+        DescLine(x_erdos, below2, "\textit{something new}", RED)
+    ]
+    play Fade(1.0, [&e_erdos])
+    play Wait(1.5)
+
+    hist_title = spine = e_ramsey = e_es = e_dogma = e_erdos = []
+    play Fade(0.6)
+
+slide "Random Graph"
+    # The core idea behind Erdos' method is probabilistic
+    # instead of clever constructions.
+    # We literally start with a completely random coloring
+    # and now ask what is the probability that
+    # this coloring contains one or more monochromatic
+    # subgraphs of size k (also known as a clique).
+    #
+    # Such a probability is difficult directly since
+    # the monochromaticity of two different cliques is not independent given that they may share many edges
+    # However, we can use the union bound to bet an upper bound, which says that the probability of a union is at most the sum of the individual probabilities
+    # In this case, that means our upper bound is
+    # # cliques * probability any one of them is monochrome, which by symmetry, is the same for each one
+    #
+    # There are n choose k total cliques
+    # and since we're choosing the color of each edge uniformly and independently, the probability its monochrome is the probability that all edges are red, or  all edges are blue
+    # this comes out to 0.5 ^ (-1 + k(k - 1) / 2), where the negative 1 indicates that we have two possible final colors
+
+    let row = |lab| center{1.5l + 1u} Text(lab, 0.9)
+    title = row("Computing $R(k, k)$ with random graphs")
+
+    let n = 8
+    var curr = []
+    for (i in range(0, n)) {
+        for (j in range(i + 1, n)) {
+            if (random() > 0.5) {
+                curr .= [i, j]
+            }
+        }
+    }
+    let curr = curr
+    graph =
+        style{reds: curr, blues: filter(edges(8), |e| not (e in curr)), highlight: []}
+        center{2r}
+        GuestRing(n: 8, 1.0, 1)
+    play Set()
+
+    play Wait(1)
+
+    title = shift{1u + 3.5l} Stack(items: [] .. row("$P(\text{some monochrome } k\text{-cliques})$"), 1d, 1l)
+    play Trans()
+    play Wait(1)
+
+    title.items .= row("$= P(\bigcup_{K} \text{ monochrome}(K))$")
+    play Fade()
+    play Wait(1)
+
+    let col = operator |target|
+        color{PURPLE, |tag| 1 in tag}
+        color{BLUE, |tag| 2 in tag}
+        target
+    title.items .= col{} row("$\tag0{\le\ } \tag1{\text{\# cliques}} \cdot \tag2{P(\text{monochrome}(K))}$")
+    play Fade()
+    play Wait(1)
+
+    graph.highlight = [3, 5, 7]
+    play Trans()
+
+    play Wait(1)
+
+    title.items .= col{} row("$\tag0{=\ } \tag1{\binom{n}{k}} \tag2{\left(\frac{1}{2}\right)^{-1 + k(k-1)/2}}$")
+    play Fade()
+    play Wait(1)
+
+
+slide "Result"
+    # This gives us a pretty useful bound
+    # If we fix k, and choose n so that the expression from before is < 1
+    # then that means the probability a random coloring of the n-vertex graph has one or more monochrome k-cliques is < 1
+    # but for that probability to be < 1
+    # it must be the case that there is a coloring
+    # of a n-vertex graph with no monochrome k-cliques
+    # This means that the ramsey number for k is more than n
+    # And with a bit of rearrangement that effectively proves for sufficiently large values of k
+    # we have that R(k, k) \ge 2^{k / 2}
+    title = graph = []
+    play Set()
+
+    title = shift{1u + 2l} Stack(items: [], 1d, 1l)
+    title.items .= row([
+        "Fix $k$, choose $n$ so that",
+        "$\binom{n}{k}\left(\frac{1}{2}\right)^{-1 + k(k-1)/2} < 1$"
+    ])
+    play Write()
+
+    play Wait(1)
+    title.items .= row("$\implies P(\text{some monochrome } k\text{-cliques})$ < 1 ")
+    play Write()
+
+    play Wait(1)
+    title.items .= row("$\implies$ n-vertex graph with no monochrome $k\text{-cliques}$")
+    play Write()
+
+    play Wait(1)
+
+    title.items .= row("$\implies \tag1{R(k, k) \ge\  \sim 2^{k / 2}}$")
+    play Write()
+
+    play Wait(1)
+
+    mesh tmp = tag_filter{|tag| 1 in tag} title
+    let col = ORANGE
+    mesh box = color{col} BoundingBox(tmp)
+
+
+    play [
+        Highlight(&tmp, col, 2),
+        anim {
+            play Wait(0.5)
+            play Flash(&box, 1)
+            box = []
+            play Set()
+        }
+    ]
+
+slide "Hay Story"
+    # It's hard to overstate how remarkable of a result this is
+    # A completely random method with no intelligence at all
+    # provides a better lower bound than elegant, thought out constructions
+    # It's as if we are unable to find hay in a haystack.
+    #
+    # And to further illustrate just how challenging the problem is
+    # despite its simple statement, I leave a quote by Joel Spencer
+    # who details Erdos thoughts on the difficult of computing R(6, 6)
+    title = tmp = []
+    play Set()
+
+    mesh quote = center{0u} Text("``We couldn't find hay in a haystack''", 0.8)
+
+    play Write(3)
+
+    play Wait(3)
+    quote = []
+    play Set()
+
+    quote = center{0u} Text("``Erdos asks us to imagine an alien force, vastly more powerful than us, landing on Earth and demanding the value of R(5, 5) or they will destroy our planet. In that case, he claims, we should marshal all our computers and all our mathematicians and attempt to find the value. But suppose, instead, that they ask for R(6, 6). In that case, he believes, we should attempt to destroy the aliens.''", 0.8)
+
+    play Write(3)

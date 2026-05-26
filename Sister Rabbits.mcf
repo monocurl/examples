@@ -308,7 +308,6 @@
 			meshes&: aux
 			time: 1
 		element: ret
-	
 	p += Underline:
 		it&: statement
 		predicate(tag): 0 in tag
@@ -1059,6 +1058,7 @@
 	let colors = colors_
 	
 	
+	
 	/* randomness is a bit awkward in MC */
 	var iota = 0 :< 2 * fat_n
 	/* shuffle */
@@ -1075,7 +1075,7 @@
 	for i in 0 :< fat_n	
 		sis[2 * i] = 2 * i + 1
 		sis[2 * i + 1] = 2 * i
-				
+	
 	var partner = {:}
 	var block = 0
 	for i in 0 :< fat_n
